@@ -17,6 +17,11 @@ namespace Xigen\CC\Plugin\Magento\Framework\Mail\Template;
 class TransportBuilder
 {
     /**
+     * @var \Magento\Framework\App\Config\ScopeConfigInterface
+     */
+    private $scopeConfig;
+
+    /**
      * @var \Magento\Customer\Api\CustomerRepositoryInterface
      */
     protected $customerRepositoryInterface;
@@ -30,73 +35,70 @@ class TransportBuilder
      * @var \Psr\Log\LoggerInterface
      */
     protected $logger;
+    
+    protected $order;
 
     public function __construct(
+        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
         \Magento\Customer\Api\CustomerRepositoryInterface $customerRepositoryInterface,
         \Magento\Customer\Model\Session $customerSession,
         \Psr\Log\LoggerInterface $logger
     ) {
+        $this->scopeConfig = $scopeConfig;
         $this->customerRepositoryInterface = $customerRepositoryInterface;
         $this->customerSession = $customerSession;
         $this->logger = $logger;
+    }
+    
+    public function beforeSetTemplateVars($subject, $vars)
+    {
+        if (isset($vars['order'])) {
+            $this->order = $vars['order'];
+        }
+        return ['vars' => $vars];
     }
 
     public function beforeGetTransport(
         \Magento\Framework\Mail\Template\TransportBuilder $subject
     ) {
         try {
-            $ccEmailAddresses = $this->getEmailCopyTo();
-            if (!empty($ccEmailAddresses)) {
-                foreach ($ccEmailAddresses as $ccEmailAddress) {
-                    $subject->addCc(trim($ccEmailAddress));
-                    $this->logger->debug((string) __('Added customer CC: %1', trim($ccEmailAddress)));
-                }
+            foreach ($this->getCustomerEmailCopyTo() as $ccEmailAddress) {
+                $subject->addCc(trim($ccEmailAddress));
+                $this->logger->debug((string) __('Added CC: %1', trim($ccEmailAddress)));
+            }
+            foreach ($this->getOrderEmailCopyTo() as $bccEmailAddress) {
+                $subject->addBcc(trim($bccEmailAddress));
+                $this->logger->debug((string) __('Added BCC: %1', trim($bccEmailAddress)));
             }
         } catch (\Exception $e) {
-            $this->logger->error((string) __('Failure to add customer CC: %1', $e->getMessage()));
+            $this->logger->error((string) __('Failure to add CC: %1', $e->getMessage()));
         }
         return [];
     }
 
     /**
-     * Get customer id from session
+     * Return email copy_to list from customer
+     * @return array
      */
-    public function getCustomerIdFromSession()
+    public function getCustomerEmailCopyTo()
     {
-        if ($customer = $this->customerSession->getCustomer()) {
-            return $customer->getId();
+        if(!empty($this->order)) {
+          $customerId = $this->order->getCustomerId();
+        } else {
+          $customerId = $this->customerSession->getCustomer()->getId();
         }
-        return null;
-    }
-
-    /**
-     * Return email copy_to list
-     * @return array|bool
-     */
-    public function getEmailCopyTo()
-    {
-        $customerId = $this->getCustomerIdFromSession();
-        if (!$customerId) {
-            return false;
+        if (!empty($customerId)) {
+          $customer = $this->getCustomerById($customerId);
         }
-
-        // $this->logger->debug((string) __('Customer Id: %1', $customerId));
-
         $customer = $this->getCustomerById($customerId);
-        if (!$customer) {
-            return false;
+        if (!empty($customer)) {
+          $emailCc = $customer->getCustomAttribute('email_cc');
+          $customerEmailCC = $emailCc ? $emailCc->getValue() : null;
         }
-
-        $emailCc = $customer->getCustomAttribute('email_cc');
-        $customerEmailCC = $emailCc ? $emailCc->getValue() : null;
-
-        // $this->logger->debug((string) __('Customer cc: %1', $customerEmailCC));
-
         if (!empty($customerEmailCC)) {
             return explode(',', trim($customerEmailCC));
         }
-
-        return false;
+        return [];
     }
 
     /**
@@ -112,5 +114,21 @@ class TransportBuilder
             $this->logger->critical($e);
             return false;
         }
+    }
+
+    /**
+     * Return email copy_to list from sales
+     * @return array
+     */
+    public function getOrderEmailCopyTo()
+    {
+        $salesEmailCc = $this->scopeConfig->getValue(
+            'sales_email/order/copy_to',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+        if (!empty($salesEmailCc)) {
+            return explode(',', trim($salesEmailCc));
+        }
+        return [];
     }
 }
