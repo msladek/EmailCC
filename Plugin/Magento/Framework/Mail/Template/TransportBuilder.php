@@ -16,119 +16,159 @@ namespace Xigen\CC\Plugin\Magento\Framework\Mail\Template;
  */
 class TransportBuilder
 {
-    /**
-     * @var \Magento\Framework\App\Config\ScopeConfigInterface
-     */
-    private $scopeConfig;
+  /**
+   * @var \Magento\Framework\App\Config\ScopeConfigInterface
+   */
+  private $scopeConfig;
 
-    /**
-     * @var \Magento\Customer\Api\CustomerRepositoryInterface
-     */
-    protected $customerRepositoryInterface;
+  /**
+   * @var \Magento\Customer\Api\CustomerRepositoryInterface
+   */
+  protected $customerRepositoryInterface;
 
-    /**
-     * @var \Magento\Customer\Model\Session
-     */
-    protected $customerSession;
+  /**
+   * @var \Magento\Customer\Model\Session
+   */
+  protected $customerSession;
 
-    /**
-     * @var \Psr\Log\LoggerInterface
-     */
-    protected $logger;
-    
-    protected $order;
+  /**
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected $logger;
+  
+  protected $templateIdentifier;
+  
+  protected $order;
 
-    public function __construct(
-        \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
-        \Magento\Customer\Api\CustomerRepositoryInterface $customerRepositoryInterface,
-        \Magento\Customer\Model\Session $customerSession,
-        \Psr\Log\LoggerInterface $logger
-    ) {
-        $this->scopeConfig = $scopeConfig;
-        $this->customerRepositoryInterface = $customerRepositoryInterface;
-        $this->customerSession = $customerSession;
-        $this->logger = $logger;
+  public function __construct(
+      \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+      \Magento\Customer\Api\CustomerRepositoryInterface $customerRepositoryInterface,
+      \Magento\Customer\Model\Session $customerSession,
+      \Psr\Log\LoggerInterface $logger
+  ) {
+      $this->scopeConfig = $scopeConfig;
+      $this->customerRepositoryInterface = $customerRepositoryInterface;
+      $this->customerSession = $customerSession;
+      $this->logger = $logger;
+  }
+  
+  public function beforeSetTemplateIdentifier($subject, $templateIdentifier)
+  {
+    $this->templateIdentifier = $templateIdentifier;
+    return null;
+  }
+  
+  public function beforeSetTemplateVars($subject, $vars)
+  {
+    if (isset($vars['order'])) {
+      $this->order = $vars['order'];
     }
-    
-    public function beforeSetTemplateVars($subject, $vars)
-    {
-        if (isset($vars['order'])) {
-            $this->order = $vars['order'];
-        }
-        return ['vars' => $vars];
-    }
+    return null;
+  }
 
-    public function beforeGetTransport(
-        \Magento\Framework\Mail\Template\TransportBuilder $subject
-    ) {
-        try {
-            foreach ($this->getCustomerEmailCopyTo() as $ccEmailAddress) {
-                $subject->addCc(trim($ccEmailAddress));
-                $this->logger->debug((string) __('Added CC: %1', trim($ccEmailAddress)));
-            }
-            foreach ($this->getOrderEmailCopyTo() as $bccEmailAddress) {
-                $subject->addBcc(trim($bccEmailAddress));
-                $this->logger->debug((string) __('Added BCC: %1', trim($bccEmailAddress)));
-            }
-        } catch (\Exception $e) {
-            $this->logger->error((string) __('Failure to add CC: %1', $e->getMessage()));
+  public function beforeGetTransport(
+      \Magento\Framework\Mail\Template\TransportBuilder $subject
+  ) {
+    try {
+      if ($this->isCurrentOrderEmail()) {
+        $this->logger->debug((string) __('EmailCC - collecting CC/BCC'));
+        foreach ($this->getCustomerEmailCopyTo() as $ccEmailAddress) {
+          $subject->addCc(trim($ccEmailAddress));
+          $this->logger->debug((string) __('EmailCC - added CC: %1', trim($ccEmailAddress)));
         }
-        return [];
+        foreach ($this->getOrderEmailCopyTo() as $bccEmailAddress) {
+          $subject->addBcc(trim($bccEmailAddress));
+          $this->logger->debug((string) __('EmailCC - added BCC: %1', trim($bccEmailAddress)));
+        }
+      } else {
+        $this->logger->debug((string) __('EmailCC - skip non-order email'));
+      }
+    } catch (\Exception $e) {
+      $this->logger->error((string) __('EmailCC - failed: %1', $e->getMessage()));
     }
+    return null;
+  }
 
-    /**
-     * Return email copy_to list from customer
-     * @return array
-     */
-    public function getCustomerEmailCopyTo()
-    {
-        if(!empty($this->order)) {
-          $customerId = $this->order->getCustomerId();
-        } else {
-          $customerId = $this->customerSession->getCustomer()->getId();
-        }
-        if (!empty($customerId)) {
-          $customer = $this->getCustomerById($customerId);
-        }
-        $customer = $this->getCustomerById($customerId);
-        if (!empty($customer)) {
-          $emailCc = $customer->getCustomAttribute('email_cc');
-          $customerEmailCC = $emailCc ? $emailCc->getValue() : null;
-        }
-        if (!empty($customerEmailCC)) {
-            return explode(',', trim($customerEmailCC));
-        }
-        return [];
-    }
+  /**
+   * Check if current template matches order template
+   * @return boolean
+   */
+  public function isCurrentOrderEmail()
+  {
+    return $this->templateIdentifier == $this->getConfigValue('sales_email/order/template')
+        || $this->templateIdentifier == $this->getConfigValue('sales_email/order/guest_template');
+  }
 
-    /**
-     * Get customer by Id.
-     * @param int $customerId
-     * @return \Magento\Customer\Model\Data\Customer
-     */
-    public function getCustomerById($customerId)
-    {
-        try {
-            return $this->customerRepositoryInterface->getById($customerId);
-        } catch (\Exception $e) {
-            $this->logger->critical($e);
-            return false;
-        }
+  /**
+   * Return email copy_to list from customer
+   * @return array
+   */
+  public function getCustomerEmailCopyTo()
+  {
+    $customer = $this->getCustomerFromOrder();
+    if ($customer) {
+      $emailCc = $customer->getCustomAttribute('email_cc');
+      $customerEmailCC = $emailCc ? $emailCc->getValue() : null;
+    } else {
+      $this->logger->debug('EmailCC - no customer found');
     }
+    if (!empty($customerEmailCC)) {
+      return explode(',', trim($customerEmailCC));
+    }
+    return [];
+  }
+  
+  /**
+   * Get customer id from the current order
+   * @return customer
+   */
+  public function getCustomerFromOrder()
+  {
+    if ($this->order) {
+      $customerId = $this->order->getCustomerId();
+      return $this->getCustomerById($customerId);
+    }
+    return null;
+  }
 
-    /**
-     * Return email copy_to list from sales
-     * @return array
-     */
-    public function getOrderEmailCopyTo()
-    {
-        $salesEmailCc = $this->scopeConfig->getValue(
-            'sales_email/order/copy_to',
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
-        );
-        if (!empty($salesEmailCc)) {
-            return explode(',', trim($salesEmailCc));
-        }
-        return [];
+  /**
+   * Get customer by Id.
+   * @param int $customerId
+   * @return \Magento\Customer\Model\Data\Customer
+   */
+  public function getCustomerById($customerId)
+  {
+    if ($customerId) {
+      try {
+        return $this->customerRepositoryInterface->getById($customerId);
+      } catch (\Exception $e) {
+        $this->logger->critical($e);
+      }
     }
+    return null;
+  }
+
+  /**
+   * Return email copy_to list from order config
+   * @return array
+   */
+  public function getOrderEmailCopyTo()
+  {
+    $orderEmailCc = $this->getConfigValue('sales_email/order/copy_to');
+    if (!empty($orderEmailCc)) {
+      return explode(',', trim($orderEmailCc));
+    }
+    return [];
+  }
+
+  public function getConfigValue($configPath)
+  {
+    if ($this->scopeConfig) {
+      return $this->scopeConfig->getValue(
+          $configPath,
+          \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+      );
+    }
+    return null;
+  }
 }
