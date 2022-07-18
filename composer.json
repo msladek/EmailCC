@@ -28,7 +28,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Xigen\\CC\\": ""
+            "Sladek\\EmailCC\\": ""
         },
         "files": [
             "registration.php"
