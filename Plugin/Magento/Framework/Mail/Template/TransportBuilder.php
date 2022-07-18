@@ -1,15 +1,15 @@
 <?php
 /**
  * Add email cc field to customer account area. Transactional emails are also sent to this address.
- * Copyright (C) 2018 Dominic Xigen
+ * Copyright (C) 2018 Dominic Xigen, 2022 Marc Sladek
  *
- * This file included in Xigen/CC is licensed under OSL 3.0
+ * This file included in Sladek/EmailCC is licensed under OSL 3.0
  *
  * http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
  * Please see LICENSE.txt for the full text of the OSL 3.0 license
  */
 
-namespace Xigen\CC\Plugin\Magento\Framework\Mail\Template;
+namespace Sladek\EmailCC\Plugin\Magento\Framework\Mail\Template;
 
 /**
  * Plugin to add customer email cc

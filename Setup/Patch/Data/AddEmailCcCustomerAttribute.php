@@ -7,7 +7,7 @@
 
  declare(strict_types=1);
 
-namespace Xigen\CC\Setup\Patch\Data;
+namespace Sladek\EmailCC\Setup\Patch\Data;
 
 use Magento\Customer\Model\Customer;
 use Magento\Customer\Setup\CustomerSetup;
