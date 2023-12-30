@@ -90,10 +90,7 @@ class AddEmailCcCustomerAttribute implements DataPatchInterface, PatchRevertable
         $attribute = $customerSetup->getEavConfig()->getAttribute(Customer::ENTITY, 'email_cc');
         $attribute->addData([
             'used_in_forms' => [
-                'adminhtml_customer',
-                'adminhtml_checkout',
-                'customer_account_create',
-                'customer_account_edit'
+                'adminhtml_customer'
             ]
         ]);
         $attribute->addData([
